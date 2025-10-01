@@ -14,7 +14,108 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      alternatives: {
+        Row: {
+          created_at: string | null
+          id: string
+          indian_product_id: string
+          match_score: number
+          original_product_id: string
+          price_comparison: string
+          quality_comparison: string
+          reason: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          indian_product_id: string
+          match_score: number
+          original_product_id: string
+          price_comparison: string
+          quality_comparison: string
+          reason: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          indian_product_id?: string
+          match_score?: number
+          original_product_id?: string
+          price_comparison?: string
+          quality_comparison?: string
+          reason?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "alternatives_indian_product_id_fkey"
+            columns: ["indian_product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "alternatives_original_product_id_fkey"
+            columns: ["original_product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      products: {
+        Row: {
+          availability: string
+          barcode: string
+          brand: string
+          category: string
+          country_of_origin: string
+          created_at: string | null
+          description: string | null
+          id: string
+          image_url: string | null
+          is_indian: boolean
+          name: string
+          price: number
+          rating: number | null
+          updated_at: string | null
+          where_to_buy: Json | null
+        }
+        Insert: {
+          availability: string
+          barcode: string
+          brand: string
+          category: string
+          country_of_origin: string
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          image_url?: string | null
+          is_indian?: boolean
+          name: string
+          price: number
+          rating?: number | null
+          updated_at?: string | null
+          where_to_buy?: Json | null
+        }
+        Update: {
+          availability?: string
+          barcode?: string
+          brand?: string
+          category?: string
+          country_of_origin?: string
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          image_url?: string | null
+          is_indian?: boolean
+          name?: string
+          price?: number
+          rating?: number | null
+          updated_at?: string | null
+          where_to_buy?: Json | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
