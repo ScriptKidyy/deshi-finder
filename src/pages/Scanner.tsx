@@ -1,24 +1,48 @@
 import { useState, useEffect, useRef } from "react";
-import { Scan, CameraOff } from "lucide-react";
+import { Scan, CameraOff, Package, Star, ShoppingBag, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { Html5Qrcode } from "html5-qrcode";
 import { toast } from "sonner";
+import { searchProductByBarcode, getAlternativesForProduct, Product } from "@/lib/productData";
 
 const Scanner = () => {
   const [barcode, setBarcode] = useState("");
   const [cameraActive, setCameraActive] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [product, setProduct] = useState<Product | null>(null);
+  const [alternatives, setAlternatives] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
   const scannerDivId = "barcode-scanner";
 
-  const handleScan = (scannedCode: string) => {
-    if (scannedCode.trim()) {
-      toast.success(`Barcode scanned: ${scannedCode}`);
-      console.log("Scanning barcode:", scannedCode);
-      setBarcode(scannedCode);
-      // TODO: Implement barcode lookup
+  const handleScan = async (scannedCode: string) => {
+    if (!scannedCode.trim()) return;
+    
+    setBarcode(scannedCode);
+    setLoading(true);
+    
+    const foundProduct = await searchProductByBarcode(scannedCode);
+    
+    if (foundProduct) {
+      setProduct(foundProduct);
+      toast.success(`Product Found: ${foundProduct.name}`);
+      
+      if (!foundProduct.is_indian) {
+        const alts = await getAlternativesForProduct(foundProduct.id);
+        setAlternatives(alts);
+      } else {
+        setAlternatives([]);
+      }
+    } else {
+      setProduct(null);
+      setAlternatives([]);
+      toast.error(`No product found with barcode: ${scannedCode}`);
     }
+    
+    setLoading(false);
+    stopScanner();
   };
 
   const checkCameraPermission = async () => {
@@ -177,8 +201,13 @@ const Scanner = () => {
               onKeyDown={(e) => e.key === "Enter" && handleScan(barcode)}
               className="flex-1 bg-background border-border"
             />
-            <Button onClick={() => handleScan(barcode)} size="lg" className="bg-primary hover:bg-primary/90">
-              Search
+            <Button 
+              onClick={() => handleScan(barcode)} 
+              size="lg" 
+              className="bg-primary hover:bg-primary/90"
+              disabled={!barcode || loading}
+            >
+              {loading ? "Searching..." : "Search"}
             </Button>
           </div>
           <p className="text-sm text-center text-muted-foreground">
@@ -197,6 +226,84 @@ const Scanner = () => {
             {cameraActive ? "Stop Scanner" : "Start Scanner"}
           </Button>
         </div>
+
+        {/* Product Details */}
+        {product && (
+          <div className="bg-card border border-border rounded-2xl p-6 space-y-6">
+            <div className="flex items-start justify-between">
+              <div className="space-y-2">
+                <h2 className="text-2xl font-bold text-foreground">{product.name}</h2>
+                <p className="text-lg text-muted-foreground">{product.brand}</p>
+              </div>
+              <Badge variant={product.is_indian ? "default" : "secondary"} className="text-sm px-3 py-1">
+                {product.is_indian ? "🇮🇳 Indian" : `${product.country_of_origin}`}
+              </Badge>
+            </div>
+            
+            <p className="text-muted-foreground">{product.description}</p>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex items-center gap-2">
+                <Package className="h-5 w-5 text-muted-foreground" />
+                <span className="text-sm">{product.category}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Star className="h-5 w-5 text-yellow-500 fill-yellow-500" />
+                <span className="text-sm font-medium">{product.rating}/5</span>
+              </div>
+            </div>
+
+            <div className="pt-4 border-t">
+              <p className="text-3xl font-bold text-primary">₹{product.price.toFixed(2)}</p>
+              <p className="text-sm text-muted-foreground capitalize mt-1">
+                {product.availability.replace(/_/g, ' ')}
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-sm font-medium flex items-center gap-2">
+                <ShoppingBag className="h-4 w-4" />
+                Available at:
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {product.where_to_buy.map((store, idx) => (
+                  <Badge key={idx} variant="outline">{store}</Badge>
+                ))}
+              </div>
+            </div>
+
+            {!product.is_indian && alternatives.length > 0 && (
+              <div className="pt-6 border-t space-y-4">
+                <h3 className="text-xl font-semibold text-primary">🇮🇳 Indian Alternatives</h3>
+                <div className="space-y-4">
+                  {alternatives.slice(0, 3).map(({ alternative, product: altProduct }) => (
+                    <div key={alternative.id} className="bg-background border border-indian-saffron/30 rounded-xl p-4 space-y-3">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h4 className="font-semibold text-lg">{altProduct.name}</h4>
+                          <p className="text-sm text-muted-foreground">{altProduct.brand}</p>
+                        </div>
+                        <Badge className="bg-indian-green text-white">
+                          {alternative.match_score}% Match
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-muted-foreground">{alternative.reason}</p>
+                      <div className="flex gap-2">
+                        <Badge variant="outline" className="capitalize">
+                          {alternative.price_comparison.replace(/_/g, ' ')}
+                        </Badge>
+                        <Badge variant="outline" className="capitalize">
+                          {alternative.quality_comparison} quality
+                        </Badge>
+                      </div>
+                      <p className="text-2xl font-bold text-indian-green">₹{altProduct.price.toFixed(2)}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

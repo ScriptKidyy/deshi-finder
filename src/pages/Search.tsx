@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Search as SearchIcon, Filter, MapPin, Star } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Search as SearchIcon, Filter, MapPin, Star, Package, ShoppingBag } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,50 +10,33 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
-const mockProducts = [
-  {
-    id: "1",
-    name: "iPhone 17 Pro Max",
-    brand: "Apple",
-    country: "China, India",
-    category: "Smartphone",
-    rating: 4.5,
-    price: 110000,
-    availability: "widely available",
-    stores: ["Apple Store", "Amazon India", "Flipkart"],
-    isIndian: false,
-  },
-  {
-    id: "2",
-    name: "iPhone 17 Pro",
-    brand: "Apple",
-    country: "China, India",
-    category: "Smartphone",
-    rating: 4.5,
-    price: 95000,
-    availability: "widely available",
-    stores: ["Apple Store", "Amazon India", "Flipkart"],
-    isIndian: false,
-  },
-];
+import { searchProducts, getAlternativesForProduct, Product } from "@/lib/productData";
 
 const Search = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [category, setCategory] = useState("all");
   const [indianOnly, setIndianOnly] = useState(false);
-  const [results, setResults] = useState<any[]>([]);
+  const [results, setResults] = useState<Product[]>([]);
   const [searched, setSearched] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [alternatives, setAlternatives] = useState<any[]>([]);
 
-  const handleSearch = () => {
-    if (searchQuery.trim()) {
-      const filtered = mockProducts.filter(
-        (p) =>
-          p.name.toLowerCase().includes(searchQuery.toLowerCase()) &&
-          (!indianOnly || p.isIndian)
-      );
-      setResults(filtered);
-      setSearched(true);
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) return;
+    
+    setLoading(true);
+    const searchResults = await searchProducts(searchQuery, indianOnly, category);
+    setResults(searchResults);
+    setSearched(true);
+    setLoading(false);
+  };
+
+  const handleViewAlternatives = async (product: Product) => {
+    setSelectedProduct(product);
+    if (!product.is_indian) {
+      const alts = await getAlternativesForProduct(product.id);
+      setAlternatives(alts);
     }
   };
 
@@ -80,7 +63,12 @@ const Search = () => {
               onKeyDown={(e) => e.key === "Enter" && handleSearch()}
               className="flex-1 bg-background border-border"
             />
-            <Button onClick={handleSearch} size="lg" className="bg-primary hover:bg-primary/90">
+            <Button 
+              onClick={handleSearch} 
+              size="lg" 
+              className="bg-primary hover:bg-primary/90"
+              disabled={loading}
+            >
               <SearchIcon className="h-5 w-5" />
             </Button>
           </div>
@@ -120,21 +108,33 @@ const Search = () => {
           </div>
         )}
 
-        {searched && results.length > 0 && (
+        {loading && (
+          <div className="text-center py-12">
+            <p className="text-muted-foreground">Searching products...</p>
+          </div>
+        )}
+
+        {searched && !loading && results.length > 0 && (
           <div className="space-y-4">
             <h2 className="text-xl font-semibold">Search Results ({results.length})</h2>
             <div className="grid md:grid-cols-2 gap-4">
               {results.map((product) => (
-                <div key={product.id} className="bg-card border border-border rounded-xl p-6 space-y-4">
+                <div key={product.id} className={`bg-card border ${product.is_indian ? 'border-indian-green/30' : 'border-border'} rounded-xl p-6 space-y-4`}>
                   <div className="space-y-2">
-                    <h3 className="text-xl font-bold">{product.name}</h3>
-                    <p className="text-muted-foreground">{product.brand}</p>
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h3 className="text-xl font-bold">{product.name}</h3>
+                        <p className="text-muted-foreground">{product.brand}</p>
+                      </div>
+                      <Badge variant={product.is_indian ? "default" : "secondary"}>
+                        {product.is_indian ? "🇮🇳" : product.country_of_origin}
+                      </Badge>
+                    </div>
                     <div className="flex gap-2 items-center flex-wrap">
                       <Badge variant="outline" className="gap-1">
-                        <MapPin className="h-3 w-3" />
-                        {product.country}
+                        <Package className="h-3 w-3" />
+                        {product.category}
                       </Badge>
-                      <Badge variant="secondary">{product.category}</Badge>
                       <Badge variant="outline" className="gap-1">
                         <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
                         {product.rating}
@@ -145,26 +145,91 @@ const Search = () => {
                   <div className="space-y-2">
                     <div className="flex justify-between">
                       <span className="text-sm text-muted-foreground">Price:</span>
-                      <span className="font-bold text-accent">₹{product.price.toLocaleString()}</span>
+                      <span className="font-bold text-primary">₹{product.price.toFixed(2)}</span>
                     </div>
+                    <p className="text-sm text-muted-foreground capitalize">
+                      {product.availability.replace(/_/g, ' ')}
+                    </p>
                     <div className="text-sm text-muted-foreground">
-                      <p>Available at:</p>
-                      <div className="flex gap-2 mt-1 flex-wrap">
-                        {product.stores.map((store) => (
-                          <Badge key={store} variant="outline">{store}</Badge>
+                      <p className="mb-1">Available at:</p>
+                      <div className="flex gap-2 flex-wrap">
+                        {product.where_to_buy.slice(0, 3).map((store, idx) => (
+                          <Badge key={idx} variant="outline">{store}</Badge>
                         ))}
                       </div>
                     </div>
                   </div>
 
-                  {!product.isIndian && (
-                    <Button className="w-full bg-accent hover:bg-accent/90" size="lg">
+                  {!product.is_indian && (
+                    <Button 
+                      className="w-full bg-accent hover:bg-accent/90" 
+                      size="lg"
+                      onClick={() => handleViewAlternatives(product)}
+                    >
                       Find Indian Alternatives
                     </Button>
                   )}
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {selectedProduct && alternatives.length > 0 && (
+          <div className="bg-card border border-indian-saffron/50 rounded-2xl p-6 space-y-6">
+            <div>
+              <h3 className="text-2xl font-semibold text-primary">Indian Alternatives for {selectedProduct.name}</h3>
+              <p className="text-muted-foreground mt-1">Support local brands with these quality alternatives</p>
+            </div>
+            <div className="space-y-4">
+              {alternatives.map(({ alternative, product: altProduct }) => (
+                <div key={alternative.id} className="bg-background border border-indian-green/30 rounded-xl p-4 space-y-3">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h4 className="font-semibold text-lg">{altProduct.name}</h4>
+                      <p className="text-sm text-muted-foreground">{altProduct.brand}</p>
+                    </div>
+                    <Badge className="bg-indian-green text-white">
+                      {alternative.match_score}% Match
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground">{alternative.reason}</p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="flex items-center gap-2">
+                      <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
+                      <span className="text-sm">{altProduct.rating}/5</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Package className="h-4 w-4" />
+                      <span className="text-sm">{altProduct.category}</span>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Badge variant="outline" className="capitalize">
+                      {alternative.price_comparison.replace(/_/g, ' ')}
+                    </Badge>
+                    <Badge variant="outline" className="capitalize">
+                      {alternative.quality_comparison} quality
+                    </Badge>
+                  </div>
+                  <div className="flex justify-between items-center pt-2 border-t">
+                    <p className="text-2xl font-bold text-indian-green">₹{altProduct.price.toFixed(2)}</p>
+                    <div className="flex flex-wrap gap-1">
+                      {altProduct.where_to_buy.slice(0, 2).map((store, idx) => (
+                        <Badge key={idx} variant="outline" className="text-xs">{store}</Badge>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <Button 
+              variant="outline" 
+              className="w-full" 
+              onClick={() => { setSelectedProduct(null); setAlternatives([]); }}
+            >
+              Close
+            </Button>
           </div>
         )}
 
