@@ -21,11 +21,61 @@ const Scanner = () => {
     }
   };
 
+  const checkCameraPermission = async () => {
+    // Check if site is secure
+    if (window.location.protocol !== 'https:' && !window.location.hostname.includes('localhost')) {
+      toast.error("Camera requires HTTPS or localhost. Please use a secure connection.");
+      return false;
+    }
+
+    // Check if getUserMedia is supported
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      toast.error("Camera access is not supported in this browser.");
+      return false;
+    }
+
+    try {
+      // Request camera permission explicitly first
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      // Stop the stream immediately after checking permission
+      stream.getTracks().forEach(track => track.stop());
+      return true;
+    } catch (err: any) {
+      console.error("Camera permission error:", err);
+      
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        toast.error("Camera access denied. Please enable camera permissions in your browser settings.", {
+          duration: 5000,
+        });
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        toast.error("No camera found. Please connect a camera device.");
+      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+        toast.error("Camera is already in use by another application. Please close other apps using the camera.", {
+          duration: 5000,
+        });
+      } else if (err.name === 'OverconstrainedError') {
+        toast.error("Camera constraints not supported. Try a different device.");
+      } else {
+        toast.error(`Camera error: ${err.message || 'Unknown error'}`, {
+          duration: 5000,
+        });
+      }
+      return false;
+    }
+  };
+
   const startScanner = async () => {
     try {
       setScanning(true);
-      setCameraActive(true);
       
+      // Check permission before starting scanner
+      const hasPermission = await checkCameraPermission();
+      if (!hasPermission) {
+        setScanning(false);
+        return;
+      }
+
+      setCameraActive(true);
       html5QrCodeRef.current = new Html5Qrcode(scannerDivId);
       
       await html5QrCodeRef.current.start(
@@ -42,9 +92,23 @@ const Scanner = () => {
           // Ignore errors during scanning (happens frequently)
         }
       );
-    } catch (err) {
+      
+      toast.success("Camera started! Point at a barcode to scan.");
+    } catch (err: any) {
       console.error("Error starting scanner:", err);
-      toast.error("Failed to start camera. Please check permissions.");
+      
+      if (err.message && err.message.includes("Permission")) {
+        toast.error("Camera permission denied. Click the lock icon 🔒 in the address bar and allow camera access.", {
+          duration: 6000,
+        });
+      } else if (err.message && err.message.includes("NotFound")) {
+        toast.error("No camera device found.");
+      } else {
+        toast.error("Failed to start camera scanner. Please try again or enter barcode manually.", {
+          duration: 5000,
+        });
+      }
+      
       setCameraActive(false);
       setScanning(false);
     }
