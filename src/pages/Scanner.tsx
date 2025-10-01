@@ -120,6 +120,18 @@ const Scanner = () => {
     }
   };
 
+  const waitForElement = async (id: string, timeout = 1500) => {
+    const start = performance.now();
+    return await new Promise<boolean>((resolve) => {
+      function check() {
+        if (document.getElementById(id)) return resolve(true);
+        if (performance.now() - start > timeout) return resolve(false);
+        requestAnimationFrame(check);
+      }
+      requestAnimationFrame(check);
+    });
+  };
+
   const startScanner = async () => {
     try {
       setScanning(true);
@@ -131,6 +143,11 @@ const Scanner = () => {
       }
 
       setCameraActive(true);
+      const ready = await waitForElement(scannerDivId);
+      if (!ready) {
+        throw new Error(`Scanner container (#${scannerDivId}) not found`);
+      }
+
       html5QrCodeRef.current = new Html5Qrcode(scannerDivId);
       
       await html5QrCodeRef.current.start(
@@ -204,14 +221,13 @@ const Scanner = () => {
           </p>
         </div>
 
-        <div className="bg-card border rounded-2xl p-8 aspect-video flex items-center justify-center">
-          {!cameraActive ? (
-            <div className="text-center space-y-4">
-              <CameraOff className="h-16 w-16 mx-auto text-muted-foreground" />
+        <div className="bg-card border rounded-2xl p-8 aspect-video relative overflow-hidden">
+          <div id={scannerDivId} className="w-full h-full flex items-center justify-center" />
+          {!cameraActive && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-background/60 backdrop-blur-sm">
+              <CameraOff className="h-16 w-16 text-muted-foreground" />
               <p className="text-muted-foreground">Camera is off</p>
             </div>
-          ) : (
-            <div id={scannerDivId} className="w-full h-full flex items-center justify-center" />
           )}
         </div>
 
