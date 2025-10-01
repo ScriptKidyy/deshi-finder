@@ -57,6 +57,11 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+        indian: "hsl(var(--indian-badge))",
+        foreign: "hsl(var(--foreign-badge))",
+      },
+      backgroundImage: {
+        'gradient-impact': 'var(--gradient-impact)',
       },
       borderRadius: {
         lg: "var(--radius)",
