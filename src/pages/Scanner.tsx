@@ -23,9 +23,10 @@ const Scanner = () => {
   const scannerDivId = "barcode-scanner";
 
   const handleScan = async (scannedCode: string) => {
-    if (!scannedCode.trim()) return;
+    const trimmedCode = scannedCode.trim();
+    if (!trimmedCode) return;
     
-    setBarcode(scannedCode);
+    setBarcode(trimmedCode);
     setLoading(true);
     
     try {
@@ -33,7 +34,7 @@ const Scanner = () => {
       const { data: foundProduct, error } = await supabase
         .from('products')
         .select('*')
-        .eq('barcode', scannedCode)
+        .eq('barcode', trimmedCode)
         .maybeSingle();
 
       if (error) throw error;
@@ -57,11 +58,11 @@ const Scanner = () => {
           setAlternatives([]);
         }
       } else {
-        // Product not found, use AI to identify
-        toast.info("Product not in database, identifying with AI...");
+        // Product not found in DB, try OpenFoodFacts then AI fallback
+        toast.info("Searching OpenFoodFacts database...");
         
         const { data: aiProduct, error: aiError } = await supabase.functions.invoke('identify-product', {
-          body: { barcode: scannedCode },
+          body: { barcode: trimmedCode },
           headers: {
             Authorization: `Bearer ${session?.access_token}`,
           },
