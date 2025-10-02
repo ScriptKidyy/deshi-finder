@@ -60,27 +60,41 @@ serve(async (req) => {
         const offResponse = await fetch(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`);
         const offData = await offResponse.json();
 
+        console.log('OpenFoodFacts response status:', offData.status);
+
         if (offData.status === 1 && offData.product) {
           const offProduct = offData.product;
           console.log('Product found in OpenFoodFacts:', offProduct.product_name);
+
+          // Build description with ingredients and nutriments
+          let description = offProduct.ingredients_text || offProduct.generic_name || 'No description available';
+          
+          // Add energy information if available
+          if (offProduct.nutriments && offProduct.nutriments['energy-kcal_100g']) {
+            description += ` Energy: ${offProduct.nutriments['energy-kcal_100g']} kcal per 100g.`;
+          }
 
           product = {
             barcode: offData.code,
             name: offProduct.product_name || 'Unknown Product',
             brand: offProduct.brands || 'Unknown Brand',
-            category: offProduct.categories?.split(',')[0] || 'Food',
-            country_of_origin: offProduct.countries_tags?.[0]?.replace('en:', '') || 'Unknown',
+            category: offProduct.categories?.split(',')[0]?.trim() || 'Food',
+            country_of_origin: offProduct.countries_tags?.[0]?.replace('en:', '').replace(/-/g, ' ') || 'Unknown',
             is_indian: offProduct.countries_tags?.some((tag: string) => tag.includes('india') || tag.includes('in:')) || false,
-            description: offProduct.ingredients_text || offProduct.generic_name || 'No description available',
+            description: description,
             image_url: offProduct.image_url || `https://example.com/images/${barcode}.jpg`,
             price: 0, // OFF doesn't provide price
             availability: 'unknown',
             where_to_buy: JSON.stringify(['Local Stores', 'Online Retailers']),
             rating: 0
           };
+
+          console.log('Product mapped from OpenFoodFacts successfully');
+        } else {
+          console.log('OpenFoodFacts returned status 0 - product not found');
         }
       } catch (offError) {
-        console.log('OpenFoodFacts API failed, will try AI:', offError);
+        console.error('OpenFoodFacts API error:', offError);
       }
     }
 
