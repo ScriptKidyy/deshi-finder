@@ -71,8 +71,10 @@ const Search = () => {
   const handleViewAlternatives = async (product: Product) => {
     setSelectedProduct(product);
     if (!product.is_indian) {
+      setLoading(true);
       try {
-        const { data: altsData } = await supabase
+        // First check if alternatives already exist
+        const { data: existingAlts } = await supabase
           .from('alternatives')
           .select(`
             *,
@@ -80,9 +82,47 @@ const Search = () => {
           `)
           .eq('original_product_id', product.id);
 
-        setAlternatives(altsData || []);
+        if (existingAlts && existingAlts.length > 0) {
+          setAlternatives(existingAlts);
+        } else {
+          // No alternatives exist, call AI to suggest them
+          toast.info("Finding Indian alternatives...");
+          
+          const { data: suggestionData, error: suggestionError } = await supabase.functions.invoke('suggest-alternatives', {
+            body: {
+              productId: product.id,
+              productName: product.name,
+              productCategory: product.category,
+            },
+            headers: {
+              Authorization: `Bearer ${session?.access_token}`,
+            },
+          });
+
+          if (suggestionError) throw suggestionError;
+
+          // Now fetch the newly created alternatives
+          const { data: newAlts } = await supabase
+            .from('alternatives')
+            .select(`
+              *,
+              indian_product:products!alternatives_indian_product_id_fkey(*)
+            `)
+            .eq('original_product_id', product.id);
+
+          setAlternatives(newAlts || []);
+          
+          if (newAlts && newAlts.length > 0) {
+            toast.success(`Found ${newAlts.length} Indian alternative(s)!`);
+          } else {
+            toast.info("No Indian alternatives found at this time.");
+          }
+        }
       } catch (error) {
         console.error('Failed to load alternatives:', error);
+        toast.error("Failed to find alternatives. Please try again.");
+      } finally {
+        setLoading(false);
       }
     }
   };
