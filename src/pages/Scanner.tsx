@@ -320,12 +320,12 @@ const Scanner = () => {
             {!product.is_indian && alternatives.length > 0 && (
               <div className="pt-6 border-t space-y-4">
                 <h3 className="text-xl font-semibold text-primary">🇮🇳 Indian Alternatives</h3>
-                {alternatives.map((alt: any) => (
+                {alternatives.filter((alt: any) => alt.indian_product).map((alt: any) => (
                   <div key={alt.id} className="bg-background border border-indian-saffron/30 rounded-xl p-4 space-y-3">
                     <div className="flex justify-between items-start">
                       <div>
-                        <h4 className="font-semibold text-lg">{alt.indian_product.name}</h4>
-                        <p className="text-sm text-muted-foreground">{alt.indian_product.brand}</p>
+                        <h4 className="font-semibold text-lg">{alt.indian_product?.name || 'Unknown Product'}</h4>
+                        <p className="text-sm text-muted-foreground">{alt.indian_product?.brand || 'Unknown Brand'}</p>
                       </div>
                       <Badge className="bg-indian-green text-white">
                         {alt.match_score}% Match
@@ -334,13 +334,15 @@ const Scanner = () => {
                     <p className="text-sm text-muted-foreground">{alt.reason}</p>
                     <div className="flex gap-2">
                       <Badge variant="outline" className="capitalize">
-                        {alt.price_comparison.replace(/_/g, ' ')}
+                        {alt.price_comparison?.replace(/_/g, ' ') || 'N/A'}
                       </Badge>
                       <Badge variant="outline" className="capitalize">
-                        {alt.quality_comparison} quality
+                        {alt.quality_comparison || 'similar'} quality
                       </Badge>
                     </div>
-                    <p className="text-2xl font-bold text-indian-green">₹{alt.indian_product.price}</p>
+                    <p className="text-2xl font-bold text-indian-green">
+                      ₹{alt.indian_product?.price || 0}
+                    </p>
                   </div>
                 ))}
               </div>
