@@ -10,9 +10,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { searchProducts, getAlternativesForProduct, Product } from "@/lib/productData";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "sonner";
+
+type Product = {
+  id: string;
+  name: string;
+  brand: string;
+  category: string;
+  country_of_origin: string;
+  is_indian: boolean;
+  price: number;
+  rating: number;
+  availability: string;
+  where_to_buy: any;
+};
 
 const Search = () => {
+  const { session } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
   const [category, setCategory] = useState("all");
   const [indianOnly, setIndianOnly] = useState(false);
@@ -26,17 +42,48 @@ const Search = () => {
     if (!searchQuery.trim()) return;
     
     setLoading(true);
-    const searchResults = await searchProducts(searchQuery, indianOnly, category);
-    setResults(searchResults);
     setSearched(true);
-    setLoading(false);
+    
+    try {
+      const { data, error } = await supabase.functions.invoke('search-products', {
+        body: { searchQuery, category, indianOnly },
+        headers: {
+          Authorization: `Bearer ${session?.access_token}`,
+        },
+      });
+
+      if (error) throw error;
+      
+      setResults(data?.products || []);
+      
+      if (data?.products?.length === 0) {
+        toast.info("No products found. Try a different search term.");
+      }
+    } catch (error) {
+      console.error('Search error:', error);
+      toast.error("Search failed. Please try again.");
+      setResults([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleViewAlternatives = async (product: Product) => {
     setSelectedProduct(product);
     if (!product.is_indian) {
-      const alts = await getAlternativesForProduct(product.id);
-      setAlternatives(alts);
+      try {
+        const { data: altsData } = await supabase
+          .from('alternatives')
+          .select(`
+            *,
+            indian_product:products!alternatives_indian_product_id_fkey(*)
+          `)
+          .eq('original_product_id', product.id);
+
+        setAlternatives(altsData || []);
+      } catch (error) {
+        console.error('Failed to load alternatives:', error);
+      }
     }
   };
 
@@ -153,7 +200,10 @@ const Search = () => {
                     <div className="text-sm text-muted-foreground">
                       <p className="mb-1">Available at:</p>
                       <div className="flex gap-2 flex-wrap">
-                        {product.where_to_buy.slice(0, 3).map((store, idx) => (
+                        {(Array.isArray(product.where_to_buy) 
+                          ? product.where_to_buy 
+                          : JSON.parse(product.where_to_buy || '[]')
+                        ).slice(0, 3).map((store: string, idx: number) => (
                           <Badge key={idx} variant="outline">{store}</Badge>
                         ))}
                       </div>
@@ -182,40 +232,45 @@ const Search = () => {
               <p className="text-muted-foreground mt-1">Support local brands with these quality alternatives</p>
             </div>
             <div className="space-y-4">
-              {alternatives.map(({ alternative, product: altProduct }) => (
-                <div key={alternative.id} className="bg-background border border-indian-green/30 rounded-xl p-4 space-y-3">
+              {alternatives.filter((alt: any) => alt.indian_product).map((alt: any) => (
+                <div key={alt.id} className="bg-background border border-indian-green/30 rounded-xl p-4 space-y-3">
                   <div className="flex justify-between items-start">
                     <div>
-                      <h4 className="font-semibold text-lg">{altProduct.name}</h4>
-                      <p className="text-sm text-muted-foreground">{altProduct.brand}</p>
+                      <h4 className="font-semibold text-lg">{alt.indian_product?.name || 'Unknown'}</h4>
+                      <p className="text-sm text-muted-foreground">{alt.indian_product?.brand || 'Unknown'}</p>
                     </div>
                     <Badge className="bg-indian-green text-white">
-                      {alternative.match_score}% Match
+                      {alt.match_score}% Match
                     </Badge>
                   </div>
-                  <p className="text-sm text-muted-foreground">{alternative.reason}</p>
+                  <p className="text-sm text-muted-foreground">{alt.reason}</p>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="flex items-center gap-2">
                       <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
-                      <span className="text-sm">{altProduct.rating}/5</span>
+                      <span className="text-sm">{alt.indian_product?.rating || 0}/5</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <Package className="h-4 w-4" />
-                      <span className="text-sm">{altProduct.category}</span>
+                      <span className="text-sm">{alt.indian_product?.category || 'N/A'}</span>
                     </div>
                   </div>
                   <div className="flex gap-2">
                     <Badge variant="outline" className="capitalize">
-                      {alternative.price_comparison.replace(/_/g, ' ')}
+                      {alt.price_comparison?.replace(/_/g, ' ') || 'Similar'}
                     </Badge>
                     <Badge variant="outline" className="capitalize">
-                      {alternative.quality_comparison} quality
+                      {alt.quality_comparison || 'similar'} quality
                     </Badge>
                   </div>
                   <div className="flex justify-between items-center pt-2 border-t">
-                    <p className="text-2xl font-bold text-indian-green">₹{altProduct.price.toFixed(2)}</p>
+                    <p className="text-2xl font-bold text-indian-green">
+                      ₹{alt.indian_product?.price?.toFixed(2) || '0.00'}
+                    </p>
                     <div className="flex flex-wrap gap-1">
-                      {altProduct.where_to_buy.slice(0, 2).map((store, idx) => (
+                      {(Array.isArray(alt.indian_product?.where_to_buy)
+                        ? alt.indian_product.where_to_buy
+                        : JSON.parse(alt.indian_product?.where_to_buy || '[]')
+                      ).slice(0, 2).map((store: string, idx: number) => (
                         <Badge key={idx} variant="outline" className="text-xs">{store}</Badge>
                       ))}
                     </div>
