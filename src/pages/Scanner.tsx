@@ -276,15 +276,41 @@ const Scanner = () => {
 
         {product && (
           <div className="bg-card border rounded-2xl p-6 space-y-6 animate-fade-in">
-            <div className="flex items-start justify-between">
+            <div className="flex items-start justify-between gap-2">
               <div>
-                <h2 className="text-2xl font-bold">{product.name}</h2>
+                <div className="flex items-center gap-2 mb-1">
+                  <h2 className="text-2xl font-bold">{product.name}</h2>
+                  {product.confidence && (
+                    <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
+                      product.confidence === 'high' 
+                        ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' 
+                        : product.confidence === 'medium'
+                        ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+                        : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                    }`}>
+                      {product.confidence === 'high' ? '✓ Verified' : product.confidence === 'medium' ? '~ Medium' : '? Low'}
+                    </span>
+                  )}
+                </div>
                 <p className="text-lg text-muted-foreground">{product.brand}</p>
               </div>
               <Badge variant={product.is_indian ? "default" : "secondary"}>
                 {product.is_indian ? "🇮🇳 Indian" : product.country_of_origin}
               </Badge>
             </div>
+            
+            {product.source && (
+              <p className="text-xs text-muted-foreground">
+                Source: {product.source === 'OFF' ? 'OpenFoodFacts' : product.source === 'LLM' ? 'AI Identified' : product.source}
+                {product.verified && ' • Verified'}
+              </p>
+            )}
+            
+            {product.confidence === 'low' && (
+              <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg text-xs text-yellow-800 dark:text-yellow-200">
+                ⚠️ This product is not confidently identified. Information may be incomplete.
+              </div>
+            )}
             
             <p className="text-muted-foreground">{product.description}</p>
             

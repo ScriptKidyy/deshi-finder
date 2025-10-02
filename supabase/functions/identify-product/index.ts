@@ -6,6 +6,133 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Helper to check if product is Indian based on tags
+function isIndianByTags(countriesTags: string[] = [], countryRaw: string = ''): boolean {
+  const tags = (countriesTags || []).map(t => String(t).toLowerCase());
+  if (tags.some(t => t.includes('india') || t === 'in' || t === 'en:india')) return true;
+  if ((countryRaw || '').toLowerCase().includes('india')) return true;
+  return false;
+}
+
+// Call Lovable AI as validator for OFF data
+async function validateProductWithAI(offData: any): Promise<any> {
+  const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+  if (!LOVABLE_API_KEY) {
+    throw new Error('LOVABLE_API_KEY not configured');
+  }
+
+  const prompt = `You are a strict product data validator. Analyze the OpenFoodFacts product JSON and return ONLY valid JSON with these exact keys:
+{
+  "barcode": "<string>",
+  "name": "<string>",
+  "brand": "<string>",
+  "categories": "<string>",
+  "countries": "<comma separated countries>",
+  "is_indian": "true|false|unknown",
+  "reason": "<short explanation>",
+  "confidence": "low|medium|high",
+  "source_urls": ["<url1>", "<url2>"]
+}
+
+Rules:
+- is_indian should be "true" if product is manufactured in India OR brand is Indian-owned
+- is_indian should be "false" if brand is foreign-owned (even if manufactured in India)
+- confidence should be "high" only if you're certain based on the data
+- Include source_urls if you have references
+
+OpenFoodFacts Data:
+${JSON.stringify(offData, null, 2)}`;
+
+  try {
+    const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-2.5-flash',
+        messages: [
+          { role: 'user', content: prompt }
+        ],
+      }),
+    });
+
+    if (!aiResponse.ok) {
+      console.error('AI validation failed:', aiResponse.status);
+      return null;
+    }
+
+    const aiData = await aiResponse.json();
+    const content = aiData.choices?.[0]?.message?.content || '';
+    
+    // Extract JSON from response (handle code blocks)
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
+    }
+    return null;
+  } catch (error) {
+    console.error('AI validation error:', error);
+    return null;
+  }
+}
+
+// Call Lovable AI as retriever when OFF fails
+async function retrieveProductWithAI(barcode: string): Promise<any> {
+  const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+  if (!LOVABLE_API_KEY) {
+    throw new Error('LOVABLE_API_KEY not configured');
+  }
+
+  const prompt = `You are a product retriever. Search for product with barcode "${barcode}". Return ONLY valid JSON:
+{
+  "barcode": "${barcode}",
+  "name": "<product name>",
+  "brand": "<brand name>",
+  "categories": "<categories>",
+  "countries": "<countries>",
+  "is_indian": "true|false|unknown",
+  "confidence": "low|medium|high",
+  "source_urls": ["<authoritative url1>", "<url2>"]
+}
+
+IMPORTANT: Only return confidence "high" if you found authoritative sources (manufacturer website, major retailer). Include source_urls. If you can't find reliable information, return confidence "low".`;
+
+  try {
+    const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-2.5-flash',
+        messages: [
+          { role: 'user', content: prompt }
+        ],
+      }),
+    });
+
+    if (!aiResponse.ok) {
+      console.error('AI retrieval failed:', aiResponse.status);
+      return null;
+    }
+
+    const aiData = await aiResponse.json();
+    const content = aiData.choices?.[0]?.message?.content || '';
+    
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
+    }
+    return null;
+  } catch (error) {
+    console.error('AI retrieval error:', error);
+    return null;
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -45,19 +172,31 @@ serve(async (req) => {
       );
     }
 
-    console.log('Identifying product for authenticated user');
+    const sanitizedBarcode = barcode?.trim();
+    console.log('Identifying product for authenticated user, barcode:', sanitizedBarcode);
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     let product: any = null;
+    let validationResult: any = null;
+    let source = 'OFF';
+    let confidence = 'medium';
+    let verified = false;
 
     // Try OpenFoodFacts API first if we have a barcode
-    if (barcode) {
-      console.log('Trying OpenFoodFacts API for barcode:', barcode);
+    if (sanitizedBarcode) {
+      console.log('Querying OpenFoodFacts API for barcode:', sanitizedBarcode);
       try {
-        const offResponse = await fetch(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 7000);
+        
+        const offResponse = await fetch(`https://world.openfoodfacts.org/api/v0/product/${sanitizedBarcode}.json`, {
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        
         const offData = await offResponse.json();
 
         console.log('OpenFoodFacts response status:', offData.status);
@@ -65,6 +204,16 @@ serve(async (req) => {
         if (offData.status === 1 && offData.product) {
           const offProduct = offData.product;
           console.log('Product found in OpenFoodFacts:', offProduct.product_name);
+
+          // Validate with AI
+          console.log('Validating product with AI...');
+          validationResult = await validateProductWithAI(offData);
+          
+          if (validationResult) {
+            console.log('AI validation result:', validationResult);
+            confidence = validationResult.confidence || 'medium';
+            verified = confidence === 'high';
+          }
 
           // Build description with ingredients and nutriments
           let description = offProduct.ingredients_text || offProduct.generic_name || 'No description available';
@@ -74,22 +223,31 @@ serve(async (req) => {
             description += ` Energy: ${offProduct.nutriments['energy-kcal_100g']} kcal per 100g.`;
           }
 
+          // Determine is_indian from both OFF tags and AI validation
+          const offIsIndian = isIndianByTags(offProduct.countries_tags, offProduct.countries);
+          const aiIsIndian = validationResult?.is_indian === 'true' || validationResult?.is_indian === true;
+          const finalIsIndian = aiIsIndian || offIsIndian;
+
           product = {
             barcode: offData.code,
             name: offProduct.product_name || 'Unknown Product',
             brand: offProduct.brands || 'Unknown Brand',
             category: offProduct.categories?.split(',')[0]?.trim() || 'Food',
             country_of_origin: offProduct.countries_tags?.[0]?.replace('en:', '').replace(/-/g, ' ') || 'Unknown',
-            is_indian: offProduct.countries_tags?.some((tag: string) => tag.includes('india') || tag.includes('in:')) || false,
+            is_indian: finalIsIndian,
             description: description,
-            image_url: offProduct.image_url || `https://example.com/images/${barcode}.jpg`,
-            price: 0, // OFF doesn't provide price
+            image_url: offProduct.image_url || offProduct.image_front_url || `https://example.com/images/${sanitizedBarcode}.jpg`,
+            price: 0,
             availability: 'unknown',
             where_to_buy: JSON.stringify(['Local Stores', 'Online Retailers']),
-            rating: 0
+            rating: 0,
+            source: 'OFF',
+            verified: verified,
+            confidence: confidence,
+            off_raw: offProduct
           };
 
-          console.log('Product mapped from OpenFoodFacts successfully');
+          console.log('Product mapped from OpenFoodFacts with validation');
         } else {
           console.log('OpenFoodFacts returned status 0 - product not found');
         }
@@ -98,100 +256,47 @@ serve(async (req) => {
       }
     }
 
-    // If OFF didn't work, fall back to AI
-    if (!product) {
-      console.log('Falling back to AI for product identification');
-      const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-      if (!LOVABLE_API_KEY) {
-        throw new Error('LOVABLE_API_KEY not configured');
-      }
-
-      const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: [
-          {
-            role: 'system',
-            content: `You are a product identification assistant. Given a barcode or product query, identify the product and return structured JSON with these fields:
-- name: Product name
-- brand: Brand name
-- country_of_origin: Country where it's made
-- category: Product category (Food, Electronics, Cosmetics, Fashion, Household, etc.)
-- price: Estimated price in INR (number)
-- description: Brief product description
-- image_url: Use placeholder URL "https://example.com/images/[barcode].jpg"
-- availability: One of "widely_available", "online_only", "limited_availability", "out_of_stock"
-- where_to_buy: Array of store names like ["Amazon.in", "Flipkart", "Local Grocery"]
-- rating: Rating from 1-5 (number)
-
-Search the internet for accurate product information.`
-          },
-          {
-            role: 'user',
-            content: barcode ? `Identify product with barcode: ${barcode}` : `Identify product: ${query}`
-          }
-        ],
-        tools: [{
-          type: "function",
-          function: {
-            name: "identify_product",
-            description: "Return product identification details",
-            parameters: {
-              type: "object",
-              properties: {
-                name: { type: "string" },
-                brand: { type: "string" },
-                country_of_origin: { type: "string" },
-                category: { type: "string" },
-                price: { type: "number" },
-                description: { type: "string" },
-                image_url: { type: "string" },
-                availability: { type: "string", enum: ["widely_available", "online_only", "limited_availability", "out_of_stock"] },
-                where_to_buy: { type: "array", items: { type: "string" } },
-                rating: { type: "number", minimum: 0, maximum: 5 }
-              },
-              required: ["name", "brand", "country_of_origin", "category", "price", "description", "availability", "where_to_buy", "rating"]
-            }
-          }
-        }],
-        tool_choice: { type: "function", function: { name: "identify_product" } }
-      }),
-      });
-
-      if (!aiResponse.ok) {
-        const errorText = await aiResponse.text();
-        console.error('AI API error:', aiResponse.status, errorText);
-        return new Response(
-          JSON.stringify({ error: 'Failed to identify product' }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-
-      const aiData = await aiResponse.json();
-      console.log('AI response received');
-
-      const toolCall = aiData.choices[0]?.message?.tool_calls?.[0];
-      if (!toolCall) {
-        throw new Error('No tool call in AI response');
-      }
-
-      const productData = JSON.parse(toolCall.function.arguments);
+    // If OFF didn't work, fall back to AI retrieval
+    if (!product && sanitizedBarcode) {
+      console.log('Falling back to AI retrieval for barcode:', sanitizedBarcode);
       
-      // Add barcode and compute is_indian
-      product = {
-        ...productData,
-        barcode: barcode || `UNKNOWN_${Date.now()}`,
-        is_indian: productData.country_of_origin.toLowerCase().includes('india'),
-        where_to_buy: JSON.stringify(productData.where_to_buy)
-      };
+      const retrievalResult = await retrieveProductWithAI(sanitizedBarcode);
+      
+      if (retrievalResult && retrievalResult.confidence !== 'low' && (retrievalResult.source_urls || []).length > 0) {
+        console.log('AI retrieval successful:', retrievalResult);
+        
+        product = {
+          barcode: sanitizedBarcode,
+          name: retrievalResult.name || 'Unknown Product',
+          brand: retrievalResult.brand || 'Unknown Brand',
+          category: retrievalResult.categories || 'Unknown',
+          country_of_origin: retrievalResult.countries || 'Unknown',
+          is_indian: retrievalResult.is_indian === 'true' || retrievalResult.is_indian === true,
+          description: retrievalResult.description || 'No description available',
+          image_url: retrievalResult.image_url || `https://example.com/images/${sanitizedBarcode}.jpg`,
+          price: 0,
+          availability: 'unknown',
+          where_to_buy: JSON.stringify(['Online Stores']),
+          rating: 0,
+          source: 'LLM',
+          verified: retrievalResult.confidence === 'high',
+          confidence: retrievalResult.confidence || 'low',
+          off_raw: {}
+        };
+      } else {
+        console.log('AI retrieval returned low confidence or no sources');
+      }
     }
 
-    console.log('Saving product to database:', product.name);
+    if (!product) {
+      console.log('No product found through any method');
+      return new Response(
+        JSON.stringify({ error: 'Product not found' }),
+        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log('Saving product to database:', product.name, 'confidence:', product.confidence);
 
     // Save to database
     const { data: savedProduct, error: saveError } = await supabase
@@ -205,10 +310,13 @@ Search the internet for accurate product information.`
       throw saveError;
     }
 
-    console.log('Product saved successfully');
+    console.log('Product saved successfully with source:', savedProduct.source);
 
     return new Response(
-      JSON.stringify({ product: savedProduct }),
+      JSON.stringify({ 
+        product: savedProduct,
+        validation: validationResult 
+      }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error) {

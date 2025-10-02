@@ -16,6 +16,7 @@ export type Database = {
     Tables: {
       alternatives: {
         Row: {
+          confidence: string | null
           created_at: string | null
           id: string
           indian_product_id: string
@@ -24,8 +25,11 @@ export type Database = {
           price_comparison: string
           quality_comparison: string
           reason: string
+          reason_tags: string[] | null
+          source_urls: string[] | null
         }
         Insert: {
+          confidence?: string | null
           created_at?: string | null
           id?: string
           indian_product_id: string
@@ -34,8 +38,11 @@ export type Database = {
           price_comparison: string
           quality_comparison: string
           reason: string
+          reason_tags?: string[] | null
+          source_urls?: string[] | null
         }
         Update: {
+          confidence?: string | null
           created_at?: string | null
           id?: string
           indian_product_id?: string
@@ -44,6 +51,8 @@ export type Database = {
           price_comparison?: string
           quality_comparison?: string
           reason?: string
+          reason_tags?: string[] | null
+          source_urls?: string[] | null
         }
         Relationships: [
           {
@@ -68,6 +77,7 @@ export type Database = {
           barcode: string
           brand: string
           category: string
+          confidence: string | null
           country_of_origin: string
           created_at: string | null
           description: string | null
@@ -75,9 +85,12 @@ export type Database = {
           image_url: string | null
           is_indian: boolean
           name: string
+          off_raw: Json | null
           price: number
           rating: number | null
+          source: string | null
           updated_at: string | null
+          verified: boolean | null
           where_to_buy: Json | null
         }
         Insert: {
@@ -85,6 +98,7 @@ export type Database = {
           barcode: string
           brand: string
           category: string
+          confidence?: string | null
           country_of_origin: string
           created_at?: string | null
           description?: string | null
@@ -92,9 +106,12 @@ export type Database = {
           image_url?: string | null
           is_indian?: boolean
           name: string
+          off_raw?: Json | null
           price: number
           rating?: number | null
+          source?: string | null
           updated_at?: string | null
+          verified?: boolean | null
           where_to_buy?: Json | null
         }
         Update: {
@@ -102,6 +119,7 @@ export type Database = {
           barcode?: string
           brand?: string
           category?: string
+          confidence?: string | null
           country_of_origin?: string
           created_at?: string | null
           description?: string | null
@@ -109,9 +127,12 @@ export type Database = {
           image_url?: string | null
           is_indian?: boolean
           name?: string
+          off_raw?: Json | null
           price?: number
           rating?: number | null
+          source?: string | null
           updated_at?: string | null
+          verified?: boolean | null
           where_to_buy?: Json | null
         }
         Relationships: []

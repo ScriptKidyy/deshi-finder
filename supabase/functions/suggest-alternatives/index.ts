@@ -1,6 +1,25 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+// Helper to compute nutrition distance for ranking alternatives
+function computeNutritionDistance(a: any = {}, b: any = {}): number {
+  const getVal = (obj: any, key: string) => {
+    if (!obj) return 0;
+    const val = obj[key] ?? obj[key.replace('-', '_')];
+    return typeof val === 'object' ? 0 : Number(val || 0);
+  };
+  
+  const aEnergy = getVal(a, 'energy-kcal_100g') || getVal(a, 'energy_100g') || 0;
+  const bEnergy = getVal(b, 'energy-kcal_100g') || getVal(b, 'energy_100g') || 0;
+  const aSugar = getVal(a, 'sugars_100g') || 0;
+  const bSugar = getVal(b, 'sugars_100g') || 0;
+  const aFat = getVal(a, 'fat_100g') || 0;
+  const bFat = getVal(b, 'fat_100g') || 0;
+  
+  // Weighted distance: energy (60%), sugar (30%), fat (10%)
+  return 0.6 * Math.abs(aEnergy - bEnergy) + 0.3 * Math.abs(aSugar - bSugar) + 0.1 * Math.abs(aFat - bFat);
+}
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -31,39 +50,111 @@ serve(async (req) => {
       );
     }
 
-    if (typeof productId !== 'string' || productId.length > 100) {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Get product details
+    const { data: product, error: productError } = await supabase
+      .from('products')
+      .select('*')
+      .eq('id', productId)
+      .single();
+
+    if (productError || !product) {
+      console.error('Product not found:', productError);
       return new Response(
-        JSON.stringify({ error: 'Invalid product ID' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ error: 'Product not found' }),
+        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    if (typeof productName !== 'string' || productName.length > 200) {
-      return new Response(
-        JSON.stringify({ error: 'Invalid product name' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    console.log(`Suggesting alternatives for: ${productName} (${productCategory})`);
+
+    // Step 1: Find candidate alternatives from DB (nutrition-based)
+    const categoryTerm = productCategory?.split(',')[0]?.trim() || productCategory || '';
+    console.log('Searching for Indian alternatives in category:', categoryTerm);
+    
+    const { data: candidates, error: candidatesError } = await supabase
+      .from('products')
+      .select('*')
+      .eq('is_indian', true)
+      .ilike('category', `%${categoryTerm}%`)
+      .limit(200);
+
+    if (candidatesError) {
+      console.error('Error fetching candidates:', candidatesError);
     }
 
-    if (typeof productCategory !== 'string' || productCategory.length > 100) {
-      return new Response(
-        JSON.stringify({ error: 'Invalid product category' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    let rankedCandidates: any[] = [];
+    
+    if (candidates && candidates.length > 0) {
+      console.log(`Found ${candidates.length} candidate alternatives`);
+      
+      // Compute nutrition distance and rank
+      const productNutriments = typeof product.off_raw === 'object' && product.off_raw !== null
+        ? (product.off_raw as any).nutriments || {}
+        : {};
+      
+      rankedCandidates = candidates.map(candidate => {
+        const candidateNutriments = typeof candidate.off_raw === 'object' && candidate.off_raw !== null
+          ? (candidate.off_raw as any).nutriments || {}
+          : {};
+        const distance = computeNutritionDistance(productNutriments, candidateNutriments);
+        return { ...candidate, nutrition_distance: distance };
+      }).sort((a, b) => a.nutrition_distance - b.nutrition_distance).slice(0, 10);
+      
+      console.log('Top candidates by nutrition:', rankedCandidates.map(c => c.name).slice(0, 3));
+    } else {
+      console.log('No candidates found in DB, will use AI to generate suggestions');
     }
 
-    console.log('Suggesting alternatives for authenticated user:', productName);
-
+    // Step 2: Use AI to rank/validate top candidates OR generate new ones
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     if (!LOVABLE_API_KEY) {
       throw new Error('LOVABLE_API_KEY not configured');
     }
 
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    let aiPrompt = '';
+    if (rankedCandidates.length > 0) {
+      // AI ranks existing candidates
+      aiPrompt = `You are an Indian product alternatives expert. Rank and validate these Indian product alternatives for "${productName}" (${productCategory}).
 
-    // Call Lovable AI to suggest alternatives
+Candidates:
+${rankedCandidates.slice(0, 5).map((c, i) => `${i+1}. ${c.name} by ${c.brand} - ${c.category}`).join('\n')}
+
+Return JSON array with top 3 alternatives. Each should have:
+{
+  "name": "<exact name from candidates>",
+  "brand": "<exact brand from candidates>",
+  "match_score": <1-100>,
+  "reason": "<why it's a good alternative>",
+  "quality_comparison": "<brief comparison>",
+  "price_comparison": "<price difference estimate>",
+  "reason_tags": ["same_category", "nutrition_similar", "popular_brand"],
+  "confidence": "low|medium|high"
+}`;
+    } else {
+      // AI generates new suggestions
+      aiPrompt = `You are an Indian product alternatives expert. The foreign product "${productName}" by ${product.brand || 'Unknown'} in category ${productCategory} needs Indian alternatives.
+
+Generate 3 authentic Indian alternatives. Return JSON array with each having:
+{
+  "name": "<product name>",
+  "brand": "<Indian brand>",
+  "category": "<category>",
+  "price": <estimated INR>,
+  "match_score": <1-100>,
+  "reason": "<why it's a good alternative>",
+  "quality_comparison": "<brief comparison>",
+  "price_comparison": "<price difference>",
+  "reason_tags": ["same_category", "similar_use"],
+  "confidence": "medium"
+}
+
+Only suggest well-known, authentic Indian brands.`;
+    }
+
     const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -73,65 +164,8 @@ serve(async (req) => {
       body: JSON.stringify({
         model: 'google/gemini-2.5-flash',
         messages: [
-          {
-            role: 'system',
-            content: `You are an assistant that suggests Indian product alternatives. Given a foreign product, suggest 2-3 quality Indian alternatives. For each alternative, return:
-- name: Product name
-- brand: Indian brand name
-- category: Same category as original
-- price: Estimated price in INR
-- description: Brief description highlighting Indian origin
-- image_url: Use placeholder "https://example.com/images/ALT_[timestamp]_[random].jpg"
-- availability: One of "widely_available", "online_only", "limited_availability"
-- where_to_buy: Array of Indian stores
-- rating: Rating 3-5
-- match_score: How well it matches (60-95)
-- reason: Why this is a good alternative (1 sentence)
-- price_comparison: "cheaper", "similar", or "more_expensive"
-- quality_comparison: "better", "similar", or "good"
-
-Search the internet for accurate Indian alternatives.`
-          },
-          {
-            role: 'user',
-            content: `Suggest Indian alternatives for: ${productName} (Category: ${productCategory})`
-          }
+          { role: 'user', content: aiPrompt }
         ],
-        tools: [{
-          type: "function",
-          function: {
-            name: "suggest_alternatives",
-            description: "Return Indian product alternatives",
-            parameters: {
-              type: "object",
-              properties: {
-                alternatives: {
-                  type: "array",
-                  items: {
-                    type: "object",
-                    properties: {
-                      name: { type: "string" },
-                      brand: { type: "string" },
-                      category: { type: "string" },
-                      price: { type: "number" },
-                      description: { type: "string" },
-                      image_url: { type: "string" },
-                      availability: { type: "string" },
-                      where_to_buy: { type: "array", items: { type: "string" } },
-                      rating: { type: "number" },
-                      match_score: { type: "number" },
-                      reason: { type: "string" },
-                      price_comparison: { type: "string", enum: ["cheaper", "similar", "more_expensive"] },
-                      quality_comparison: { type: "string", enum: ["better", "similar", "good"] }
-                    }
-                  }
-                }
-              },
-              required: ["alternatives"]
-            }
-          }
-        }],
-        tool_choice: { type: "function", function: { name: "suggest_alternatives" } }
       }),
     });
 
@@ -145,71 +179,105 @@ Search the internet for accurate Indian alternatives.`
     }
 
     const aiData = await aiResponse.json();
-    const toolCall = aiData.choices[0]?.message?.tool_calls?.[0];
+    const content = aiData.choices?.[0]?.message?.content || '';
     
-    if (!toolCall) {
-      throw new Error('No tool call in AI response');
+    // Extract JSON from response
+    const jsonMatch = content.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) {
+      console.error('No JSON array found in AI response');
+      return new Response(
+        JSON.stringify({ error: 'Failed to parse alternatives' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
-    const { alternatives } = JSON.parse(toolCall.function.arguments);
+    const alternatives = JSON.parse(jsonMatch[0]);
     console.log(`Received ${alternatives.length} alternatives from AI`);
 
-    // Save Indian products and create alternative links
+    // Save alternatives to database
     const savedAlternatives = [];
-
+    
     for (const alt of alternatives) {
-      // Save the Indian product
-      const indianProduct = {
-        barcode: `IND_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        name: alt.name,
-        brand: alt.brand,
-        category: alt.category,
-        country_of_origin: 'India',
-        is_indian: true,
-        description: alt.description,
-        image_url: alt.image_url,
-        price: alt.price,
-        availability: alt.availability,
-        where_to_buy: JSON.stringify(alt.where_to_buy),
-        rating: alt.rating
-      };
+      let indianProductId: string | null = null;
+      
+      // If we have ranked candidates, match by name
+      if (rankedCandidates.length > 0) {
+        const matchedCandidate = rankedCandidates.find(c => 
+          c.name.toLowerCase().includes(alt.name.toLowerCase()) || 
+          alt.name.toLowerCase().includes(c.name.toLowerCase())
+        );
+        
+        if (matchedCandidate) {
+          indianProductId = matchedCandidate.id;
+          console.log('Matched candidate:', matchedCandidate.name);
+        }
+      }
+      
+      // If no match, check if product exists in DB
+      if (!indianProductId) {
+        const { data: existingProduct } = await supabase
+          .from('products')
+          .select('id')
+          .eq('name', alt.name)
+          .eq('brand', alt.brand)
+          .maybeSingle();
 
-      const { data: savedProduct, error: productError } = await supabase
-        .from('products')
-        .insert([indianProduct])
-        .select()
-        .single();
-
-      if (productError) {
-        console.error('Error saving Indian product:', productError);
-        continue;
+        indianProductId = existingProduct?.id || null;
       }
 
-      // Create alternative link
-      const alternativeLink = {
-        original_product_id: productId,
-        indian_product_id: savedProduct.id,
-        match_score: alt.match_score,
-        reason: alt.reason,
-        price_comparison: alt.price_comparison,
-        quality_comparison: alt.quality_comparison
-      };
+      // Create new product if it doesn't exist
+      if (!indianProductId) {
+        const { data: newProduct, error: insertError } = await supabase
+          .from('products')
+          .insert({
+            name: alt.name,
+            brand: alt.brand,
+            category: alt.category || productCategory,
+            price: alt.price || 0,
+            is_indian: true,
+            country_of_origin: 'India',
+            description: alt.reason || 'Indian alternative product',
+            availability: 'widely_available',
+            where_to_buy: JSON.stringify(['Local Stores', 'Amazon.in', 'Flipkart']),
+            rating: 4,
+            barcode: `ALT_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            source: 'LLM',
+            confidence: alt.confidence || 'medium',
+            verified: false
+          })
+          .select('id')
+          .single();
 
-      const { data: savedLink, error: linkError } = await supabase
+        if (insertError) {
+          console.error('Error creating alternative product:', insertError);
+          continue;
+        }
+
+        indianProductId = newProduct.id;
+      }
+
+      // Save alternative relationship with enhanced data
+      const { data: altData, error: altError } = await supabase
         .from('alternatives')
-        .insert([alternativeLink])
+        .insert({
+          original_product_id: productId,
+          indian_product_id: indianProductId,
+          match_score: alt.match_score || 85,
+          reason: alt.reason || 'Similar product category and quality',
+          quality_comparison: alt.quality_comparison || 'Comparable quality',
+          price_comparison: alt.price_comparison || 'Similar price range',
+          reason_tags: alt.reason_tags || ['same_category'],
+          confidence: alt.confidence || 'medium',
+          source_urls: alt.source_urls || []
+        })
         .select()
         .single();
 
-      if (linkError) {
-        console.error('Error saving alternative link:', linkError);
-        continue;
+      if (altError) {
+        console.error('Error saving alternative:', altError);
+      } else {
+        savedAlternatives.push(altData);
       }
-
-      savedAlternatives.push({
-        alternative: savedLink,
-        product: savedProduct
-      });
     }
 
     console.log(`Successfully saved ${savedAlternatives.length} alternatives`);
