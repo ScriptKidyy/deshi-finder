@@ -1,10 +1,10 @@
 project_id = "uspmulzpfnspivqdklsz"
 
 [functions.import-products]
-verify_jwt = false
+verify_jwt = true
 
 [functions.identify-product]
-verify_jwt = false
+verify_jwt = true
 
 [functions.suggest-alternatives]
-verify_jwt = false
+verify_jwt = true

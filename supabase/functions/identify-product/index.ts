@@ -12,8 +12,40 @@ serve(async (req) => {
   }
 
   try {
+    // Verify authentication
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ error: 'Authentication required' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     const { barcode, query } = await req.json();
-    console.log('Identifying product:', { barcode, query });
+    
+    // Input validation
+    if (!barcode && !query) {
+      return new Response(
+        JSON.stringify({ error: 'Either barcode or query is required' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (barcode && (typeof barcode !== 'string' || barcode.length > 50)) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid barcode format' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (query && (typeof query !== 'string' || query.length > 200)) {
+      return new Response(
+        JSON.stringify({ error: 'Query too long' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log('Identifying product for authenticated user');
 
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     if (!LOVABLE_API_KEY) {
@@ -85,7 +117,10 @@ Search the internet for accurate product information.`
     if (!aiResponse.ok) {
       const errorText = await aiResponse.text();
       console.error('AI API error:', aiResponse.status, errorText);
-      throw new Error(`AI API error: ${aiResponse.status}`);
+      return new Response(
+        JSON.stringify({ error: 'Failed to identify product' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
     const aiData = await aiResponse.json();
@@ -129,7 +164,7 @@ Search the internet for accurate product information.`
   } catch (error) {
     console.error('Product identification error:', error);
     return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
+      JSON.stringify({ error: 'Failed to identify product' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 import { Database, Upload } from "lucide-react";
 
 export const DataImporter = () => {
+  const { session, isAdmin } = useAuth();
   const [importing, setImporting] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
 
@@ -82,7 +84,10 @@ export const DataImporter = () => {
 
       // Call import edge function
       const { data, error } = await supabase.functions.invoke('import-products', {
-        body: { products, alternatives }
+        body: { products, alternatives },
+        headers: {
+          Authorization: `Bearer ${session?.access_token}`,
+        },
       });
 
       if (error) throw error;
@@ -124,6 +129,10 @@ export const DataImporter = () => {
     result.push(current.trim());
     return result;
   };
+
+  if (!isAdmin) {
+    return null;
+  }
 
   if (dataLoaded) {
     return (

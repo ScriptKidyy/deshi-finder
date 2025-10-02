@@ -7,10 +7,12 @@ import { Html5Qrcode } from "html5-qrcode";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Database } from "@/integrations/supabase/types";
+import { useAuth } from "@/contexts/AuthContext";
 
 type Product = Database['public']['Tables']['products']['Row'];
 
 const Scanner = () => {
+  const { session } = useAuth();
   const [barcode, setBarcode] = useState("");
   const [cameraActive, setCameraActive] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -59,7 +61,10 @@ const Scanner = () => {
         toast.info("Product not in database, identifying with AI...");
         
         const { data: aiProduct, error: aiError } = await supabase.functions.invoke('identify-product', {
-          body: { barcode: scannedCode }
+          body: { barcode: scannedCode },
+          headers: {
+            Authorization: `Bearer ${session?.access_token}`,
+          },
         });
 
         if (aiError) throw aiError;
@@ -74,7 +79,10 @@ const Scanner = () => {
               productId: aiProduct.product.id,
               productName: aiProduct.product.name,
               productCategory: aiProduct.product.category
-            }
+            },
+            headers: {
+              Authorization: `Bearer ${session?.access_token}`,
+            },
           });
 
           if (!altsError) {

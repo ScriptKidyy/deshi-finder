@@ -12,8 +12,47 @@ serve(async (req) => {
   }
 
   try {
+    // Verify authentication
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ error: 'Authentication required' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     const { productId, productName, productCategory } = await req.json();
-    console.log('Suggesting alternatives for:', productName);
+    
+    // Input validation
+    if (!productId || !productName || !productCategory) {
+      return new Response(
+        JSON.stringify({ error: 'Missing required fields' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (typeof productId !== 'string' || productId.length > 100) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid product ID' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (typeof productName !== 'string' || productName.length > 200) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid product name' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (typeof productCategory !== 'string' || productCategory.length > 100) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid product category' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log('Suggesting alternatives for authenticated user:', productName);
 
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     if (!LOVABLE_API_KEY) {
@@ -99,7 +138,10 @@ Search the internet for accurate Indian alternatives.`
     if (!aiResponse.ok) {
       const errorText = await aiResponse.text();
       console.error('AI API error:', aiResponse.status, errorText);
-      throw new Error(`AI API error: ${aiResponse.status}`);
+      return new Response(
+        JSON.stringify({ error: 'Failed to suggest alternatives' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
     const aiData = await aiResponse.json();
@@ -179,7 +221,7 @@ Search the internet for accurate Indian alternatives.`
   } catch (error) {
     console.error('Alternative suggestion error:', error);
     return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
+      JSON.stringify({ error: 'Failed to suggest alternatives' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
