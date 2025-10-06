@@ -61,7 +61,16 @@ export default {
         foreign: "hsl(var(--foreign-badge))",
       },
       backgroundImage: {
-        'gradient-impact': 'var(--gradient-impact)',
+        'gradient-hero': 'var(--gradient-hero)',
+        'gradient-card': 'var(--gradient-card)',
+        'gradient-accent': 'var(--gradient-accent)',
+      },
+      boxShadow: {
+        'soft': 'var(--shadow-soft)',
+        'elevated': 'var(--shadow-elevated)',
+      },
+      backdropBlur: {
+        'glass': '12px',
       },
       borderRadius: {
         lg: "var(--radius)",

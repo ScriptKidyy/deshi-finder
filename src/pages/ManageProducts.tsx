@@ -46,38 +46,50 @@ const ManageProducts = () => {
   const totalCount = products.length;
 
   return (
-    <div className="min-h-screen p-8">
-      <div className="max-w-7xl mx-auto space-y-8">
-        <div className="flex items-center justify-between">
-          <div className="space-y-1">
-            <h1 className="text-4xl font-bold text-foreground flex items-center gap-3">
-              <Database className="h-8 w-8 text-primary" />
-              Manage Products
-            </h1>
-            <p className="text-lg text-muted-foreground">
-              Add and manage your product database
-            </p>
+    <div className="min-h-screen">
+      {/* Hero Section */}
+      <div className="bg-gradient-hero relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-accent/5 to-transparent"></div>
+        <div className="max-w-7xl mx-auto px-8 py-12 relative">
+          <div className="flex items-center justify-between">
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center">
+                  <Database className="h-6 w-6 text-primary" />
+                </div>
+                <h1 className="text-5xl font-bold tracking-tight">Manage Products</h1>
+              </div>
+              <p className="text-xl text-muted-foreground">
+                Add and manage your product database
+              </p>
+            </div>
+            <Button 
+              size="lg" 
+              className="h-14 px-8 gap-2 bg-gradient-accent hover:opacity-90 transition-opacity rounded-2xl shadow-soft font-semibold"
+            >
+              <Plus className="h-5 w-5" />
+              Add Product
+            </Button>
           </div>
-          <Button size="lg" className="bg-accent hover:bg-accent/90 gap-2">
-            <Plus className="h-5 w-5" />
-            Add Product
-          </Button>
         </div>
+      </div>
 
-        <div className="bg-card border border-border rounded-2xl p-6 space-y-4">
-          <div className="flex gap-2">
+      <div className="max-w-7xl mx-auto px-8 py-12 space-y-8">
+        {/* Search & Filters */}
+        <div className="bg-gradient-card backdrop-blur-glass border border-border/50 rounded-3xl p-6 space-y-4 shadow-soft">
+          <div className="flex gap-3 flex-wrap">
             <Input
               type="text"
               placeholder="Search products..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="flex-1 bg-background border-border"
+              className="flex-1 h-12 bg-background/50 border-border/50 rounded-xl px-4"
             />
             <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-              <SelectTrigger className="w-48 bg-background">
+              <SelectTrigger className="w-52 h-12 bg-background/50 border-border/50 rounded-xl">
                 <SelectValue placeholder="All Categories" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="rounded-xl">
                 <SelectItem value="all">All Categories</SelectItem>
                 <SelectItem value="food">Food</SelectItem>
                 <SelectItem value="electronics">Electronics</SelectItem>
@@ -85,10 +97,10 @@ const ManageProducts = () => {
               </SelectContent>
             </Select>
             <Select value={originFilter} onValueChange={setOriginFilter}>
-              <SelectTrigger className="w-48 bg-background">
+              <SelectTrigger className="w-52 h-12 bg-background/50 border-border/50 rounded-xl">
                 <SelectValue placeholder="All Origins" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="rounded-xl">
                 <SelectItem value="all">All Origins</SelectItem>
                 <SelectItem value="indian">Indian Only</SelectItem>
                 <SelectItem value="foreign">Foreign Only</SelectItem>
@@ -97,65 +109,83 @@ const ManageProducts = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-4">
-          <div className="bg-card border border-border rounded-xl p-6 text-center space-y-2">
-            <Database className="h-10 w-10 mx-auto text-primary" />
-            <div className="text-3xl font-bold">{loading ? "..." : totalCount}</div>
-            <div className="text-sm text-muted-foreground">Total Products</div>
+        {/* Stats Cards */}
+        <div className="grid grid-cols-3 gap-6">
+          <div className="bg-gradient-card backdrop-blur-glass border border-border/50 rounded-3xl p-6 text-center space-y-3 shadow-soft">
+            <div className="w-16 h-16 rounded-2xl bg-primary/10 mx-auto flex items-center justify-center">
+              <Database className="h-8 w-8 text-primary" />
+            </div>
+            <div className="text-4xl font-bold text-foreground">{loading ? "..." : totalCount}</div>
+            <div className="text-sm text-muted-foreground font-medium">Total Products</div>
           </div>
-          <div className="bg-card border border-accent rounded-xl p-6 text-center space-y-2">
-            <div className="text-2xl mx-auto">🇮🇳</div>
-            <div className="text-3xl font-bold text-accent">{loading ? "..." : indianCount}</div>
-            <div className="text-sm text-muted-foreground">Indian Products</div>
+          <div className="bg-gradient-card backdrop-blur-glass border border-indian/30 rounded-3xl p-6 text-center space-y-3 shadow-soft ring-2 ring-indian/20">
+            <div className="text-4xl mx-auto">🇮🇳</div>
+            <div className="text-4xl font-bold text-indian">{loading ? "..." : indianCount}</div>
+            <div className="text-sm text-muted-foreground font-medium">Indian Products</div>
           </div>
-          <div className="bg-card border border-border rounded-xl p-6 text-center space-y-2">
-            <Filter className="h-10 w-10 mx-auto text-primary" />
-            <div className="text-3xl font-bold">{loading ? "..." : filteredProducts.length}</div>
-            <div className="text-sm text-muted-foreground">Filtered Results</div>
+          <div className="bg-gradient-card backdrop-blur-glass border border-border/50 rounded-3xl p-6 text-center space-y-3 shadow-soft">
+            <div className="w-16 h-16 rounded-2xl bg-accent/10 mx-auto flex items-center justify-center">
+              <Filter className="h-8 w-8 text-accent" />
+            </div>
+            <div className="text-4xl font-bold text-foreground">{loading ? "..." : filteredProducts.length}</div>
+            <div className="text-sm text-muted-foreground font-medium">Filtered Results</div>
           </div>
         </div>
 
         {loading ? (
-          <div className="text-center py-12">
-            <p className="text-muted-foreground">Loading products...</p>
+          <div className="text-center py-16 bg-gradient-card rounded-3xl border border-border/30">
+            <div className="inline-flex items-center gap-3">
+              <div className="w-5 h-5 border-3 border-primary border-t-transparent rounded-full animate-spin"></div>
+              <p className="text-lg text-foreground font-medium">Loading products...</p>
+            </div>
           </div>
         ) : (
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredProducts.map((product) => (
               <div
                 key={product.id}
-                className={`bg-card border ${
-                  product.is_indian ? "border-accent" : "border-border"
-                } rounded-xl p-6 space-y-3 hover:shadow-lg transition-shadow`}
+                className={`
+                  bg-gradient-card backdrop-blur-glass border rounded-3xl p-6 space-y-4 
+                  hover:shadow-elevated transition-all
+                  ${product.is_indian ? "border-indian/30 ring-2 ring-indian/10" : "border-border/50"}
+                `}
               >
                 <div className="space-y-2">
-                  <h3 className="text-lg font-bold">{product.name}</h3>
-                  <p className="text-sm text-muted-foreground">{product.brand}</p>
-                  <p className="text-xs text-muted-foreground font-mono">{product.barcode}</p>
+                  <h3 className="text-xl font-bold text-foreground">{product.name}</h3>
+                  <p className="text-sm text-muted-foreground font-medium">{product.brand}</p>
+                  <p className="text-xs text-muted-foreground font-mono bg-background/50 px-2 py-1 rounded-lg inline-block">
+                    {product.barcode}
+                  </p>
                 </div>
 
                 <div className="flex gap-2 flex-wrap">
                   {product.is_indian && (
-                    <Badge className="bg-accent text-white">🇮🇳 India</Badge>
+                    <Badge className="bg-indian/20 text-indian border border-indian/30 font-semibold rounded-full">
+                      🇮🇳 India
+                    </Badge>
                   )}
-                  <Badge variant="secondary">{product.category}</Badge>
+                  <Badge variant="secondary" className="rounded-full bg-background/50">
+                    {product.category}
+                  </Badge>
                 </div>
 
-                <div className="pt-2 space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Price:</span>
-                    <span className="font-bold text-primary">₹{product.price.toFixed(2)}</span>
+                <div className="pt-3 space-y-3 border-t border-border/30">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-muted-foreground font-medium">Price:</span>
+                    <span className="text-xl font-bold bg-gradient-accent bg-clip-text text-transparent">
+                      ₹{product.price.toFixed(2)}
+                    </span>
                   </div>
-                  <div className="flex justify-between text-sm items-center">
-                    <span className="text-muted-foreground">Rating:</span>
-                    <div className="flex items-center gap-1">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-muted-foreground font-medium">Rating:</span>
+                    <div className="flex items-center gap-1.5">
                       <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                      <span className="font-medium">{product.rating}</span>
+                      <span className="font-bold">{product.rating}</span>
                     </div>
                   </div>
-                  <div className="text-sm">
-                    <span className="text-muted-foreground">Status:</span>
-                    <Badge variant="outline" className="ml-2 capitalize">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-muted-foreground font-medium">Status:</span>
+                    <Badge variant="outline" className="capitalize rounded-full bg-background/50">
                       {product.availability.replace(/_/g, ' ')}
                     </Badge>
                   </div>
