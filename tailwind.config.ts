@@ -68,6 +68,7 @@ export default {
       boxShadow: {
         'soft': 'var(--shadow-soft)',
         'elevated': 'var(--shadow-elevated)',
+        'dramatic': 'var(--shadow-dramatic)',
       },
       backdropBlur: {
         'glass': '12px',
