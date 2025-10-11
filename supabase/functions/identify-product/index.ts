@@ -14,6 +14,59 @@ function isIndianByTags(countriesTags: string[] = [], countryRaw: string = ''): 
   return false;
 }
 
+// Estimate price using AI
+async function estimatePriceWithAI(productName: string, brand: string, category: string, quantity: string): Promise<number> {
+  const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+  if (!LOVABLE_API_KEY) {
+    console.log('LOVABLE_API_KEY not available for price estimation');
+    return 50;
+  }
+
+  const prompt = `Estimate a realistic market price in Indian Rupees (INR) for this product:
+Product: ${productName}
+Brand: ${brand}
+Category: ${category}
+Weight/Quantity: ${quantity || 'unknown'}
+
+Return ONLY a number representing the price in INR. No currency symbols, no text, just the number.
+Example: 45`;
+
+  try {
+    const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-2.5-flash',
+        messages: [
+          { role: 'user', content: prompt }
+        ],
+      }),
+    });
+
+    if (!aiResponse.ok) {
+      console.error('AI price estimation failed:', aiResponse.status);
+      return 50;
+    }
+
+    const aiData = await aiResponse.json();
+    const content = aiData.choices?.[0]?.message?.content || '';
+    
+    // Extract number from response
+    const priceMatch = content.match(/\d+/);
+    if (priceMatch) {
+      const estimatedPrice = parseInt(priceMatch[0]);
+      return estimatedPrice < 5 ? 50 : estimatedPrice;
+    }
+    return 50;
+  } catch (error) {
+    console.error('AI price estimation error:', error);
+    return 50;
+  }
+}
+
 // Estimate price based on product details
 function estimatePrice(product: any, brand: string, category: string, isIndian: boolean): number {
   // Base price estimation by category
@@ -276,12 +329,23 @@ serve(async (req) => {
           const aiIsIndian = validationResult?.is_indian === 'true' || validationResult?.is_indian === true;
           const finalIsIndian = aiIsIndian || offIsIndian;
 
-          const estimatedPrice = estimatePrice(
+          let estimatedPrice = estimatePrice(
             offProduct,
             offProduct.brands || 'Unknown Brand',
             offProduct.categories?.split(',')[0]?.trim() || 'Food',
             finalIsIndian
           );
+
+          // If price is still 0 or very low, use AI estimation
+          if (estimatedPrice <= 10) {
+            console.log('Using AI for better price estimation');
+            estimatedPrice = await estimatePriceWithAI(
+              offProduct.product_name || 'Unknown Product',
+              offProduct.brands || 'Unknown Brand',
+              offProduct.categories?.split(',')[0]?.trim() || 'Food',
+              offProduct.quantity || ''
+            );
+          }
 
           product = {
             barcode: offData.code,
@@ -321,12 +385,23 @@ serve(async (req) => {
         console.log('AI retrieval successful:', retrievalResult);
         
         const isIndian = retrievalResult.is_indian === 'true' || retrievalResult.is_indian === true;
-        const estimatedPrice = estimatePrice(
+        let estimatedPrice = estimatePrice(
           { product_name: retrievalResult.name },
           retrievalResult.brand || 'Unknown Brand',
           retrievalResult.categories || 'Unknown',
           isIndian
         );
+
+        // If price is still 0 or very low, use AI estimation
+        if (estimatedPrice <= 10) {
+          console.log('Using AI for better price estimation (AI retrieval path)');
+          estimatedPrice = await estimatePriceWithAI(
+            retrievalResult.name || 'Unknown Product',
+            retrievalResult.brand || 'Unknown Brand',
+            retrievalResult.categories || 'Unknown',
+            ''
+          );
+        }
 
         product = {
           barcode: sanitizedBarcode,
