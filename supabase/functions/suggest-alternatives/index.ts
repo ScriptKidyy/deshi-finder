@@ -25,6 +25,65 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Estimate price using AI
+async function estimatePriceWithAI(productName: string, brand: string, category: string, countryOfOrigin: string, isIndian: boolean): Promise<number> {
+  const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+  if (!LOVABLE_API_KEY) {
+    console.log('LOVABLE_API_KEY not available for price estimation');
+    return 50;
+  }
+
+  const prompt = `You are a product data validator for the Indian retail market. Estimate a realistic retail price in Indian Rupees (INR).
+
+Product Details:
+- Name: ${productName}
+- Brand: ${brand}
+- Category: ${category}
+- Country of Origin: ${countryOfOrigin}
+- Is Indian Product: ${isIndian}
+
+Instructions:
+- Estimate average Indian retail market price
+- For foreign products, consider import markup (typically 1.5-2x base price)
+- Consider brand popularity and positioning (premium vs mass market)
+- Account for size/volume in pricing
+- Use realistic Indian retail context (not international MRP)
+- For beverages: typical range 20-150 INR
+- For snacks: typical range 10-200 INR
+- For packaged foods: typical range 30-500 INR
+
+Return ONLY a number representing the price in INR. No currency symbols, no text, just the number.
+Example: 120`;
+
+  try {
+    const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-2.5-flash',
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+
+    if (!aiResponse.ok) {
+      console.log('AI price estimation failed');
+      return 50;
+    }
+
+    const aiData = await aiResponse.json();
+    const priceText = aiData.choices[0]?.message?.content || '50';
+    const estimatedPrice = parseInt(priceText.match(/\d+/)?.[0] || '50');
+    
+    return estimatedPrice < 5 ? 50 : estimatedPrice;
+  } catch (error) {
+    console.error('Price estimation error:', error);
+    return 50;
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -235,13 +294,26 @@ Only suggest well-known, authentic Indian brands.`;
 
       // Create new product if it doesn't exist
       if (!indianProductId) {
+        // Estimate price if missing
+        let finalPrice = alt.price || 0;
+        if (!finalPrice || finalPrice <= 0) {
+          console.log(`Estimating price for new alternative: ${alt.name}`);
+          finalPrice = await estimatePriceWithAI(
+            alt.name,
+            alt.brand,
+            alt.category || productCategory,
+            'India',
+            true
+          );
+        }
+
         const { data: newProduct, error: insertError } = await supabase
           .from('products')
           .insert({
             name: alt.name,
             brand: alt.brand,
             category: alt.category || productCategory,
-            price: alt.price || 0,
+            price: finalPrice,
             is_indian: true,
             country_of_origin: 'India',
             description: alt.reason || 'Indian alternative product',
@@ -262,6 +334,29 @@ Only suggest well-known, authentic Indian brands.`;
         }
 
         indianProductId = newProduct.id;
+      } else {
+        // Backfill price for existing product if it's 0
+        const { data: existingProductData } = await supabase
+          .from('products')
+          .select('price, name, brand, category, country_of_origin, is_indian')
+          .eq('id', indianProductId)
+          .single();
+
+        if (existingProductData && (!existingProductData.price || existingProductData.price <= 0)) {
+          console.log(`Backfilling price for existing alternative: ${existingProductData.name}`);
+          const estimatedPrice = await estimatePriceWithAI(
+            existingProductData.name,
+            existingProductData.brand,
+            existingProductData.category,
+            existingProductData.country_of_origin || 'India',
+            existingProductData.is_indian
+          );
+
+          await supabase
+            .from('products')
+            .update({ price: estimatedPrice })
+            .eq('id', indianProductId);
+        }
       }
 
       // Normalize comparison values to match database constraints
