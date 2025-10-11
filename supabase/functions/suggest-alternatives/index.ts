@@ -121,36 +121,44 @@ serve(async (req) => {
       aiPrompt = `You are an Indian product alternatives expert. Rank and validate these Indian product alternatives for "${productName}" (${productCategory}).
 
 Candidates:
-${rankedCandidates.slice(0, 5).map((c, i) => `${i+1}. ${c.name} by ${c.brand} - ${c.category}`).join('\n')}
+${rankedCandidates.slice(0, 5).map((c, i) => `${i+1}. ${c.name} by ${c.brand} - ${c.category} - Rs ${c.price}`).join('\n')}
+
+Original product price: Rs ${product.price || 'Unknown'}
 
 Return JSON array with top 3 alternatives. Each should have:
 {
   "name": "<exact name from candidates>",
   "brand": "<exact brand from candidates>",
   "match_score": <1-100>,
-  "reason": "<why it's a good alternative>",
-  "quality_comparison": "<brief comparison>",
-  "price_comparison": "<price difference estimate>",
+  "reason": "<why it's a good alternative in 1-2 sentences>",
+  "quality_comparison": "better" | "similar" | "good",
+  "price_comparison": "cheaper" | "similar" | "more_expensive",
   "reason_tags": ["same_category", "nutrition_similar", "popular_brand"],
   "confidence": "low|medium|high"
-}`;
+}
+
+CRITICAL: price_comparison must be EXACTLY one of: "cheaper", "similar", "more_expensive"
+CRITICAL: quality_comparison must be EXACTLY one of: "better", "similar", "good"`;
     } else {
       // AI generates new suggestions
-      aiPrompt = `You are an Indian product alternatives expert. The foreign product "${productName}" by ${product.brand || 'Unknown'} in category ${productCategory} needs Indian alternatives.
+      aiPrompt = `You are an Indian product alternatives expert. The foreign product "${productName}" by ${product.brand || 'Unknown'} in category ${productCategory} (Rs ${product.price || 'Unknown'}) needs Indian alternatives.
 
 Generate 3 authentic Indian alternatives. Return JSON array with each having:
 {
   "name": "<product name>",
   "brand": "<Indian brand>",
   "category": "<category>",
-  "price": <estimated INR>,
+  "price": <estimated INR as number>,
   "match_score": <1-100>,
-  "reason": "<why it's a good alternative>",
-  "quality_comparison": "<brief comparison>",
-  "price_comparison": "<price difference>",
+  "reason": "<why it's a good alternative in 1-2 sentences>",
+  "quality_comparison": "better" | "similar" | "good",
+  "price_comparison": "cheaper" | "similar" | "more_expensive",
   "reason_tags": ["same_category", "similar_use"],
   "confidence": "medium"
 }
+
+CRITICAL: price_comparison must be EXACTLY one of: "cheaper", "similar", "more_expensive"
+CRITICAL: quality_comparison must be EXACTLY one of: "better", "similar", "good"
 
 Only suggest well-known, authentic Indian brands.`;
     }
@@ -256,6 +264,21 @@ Only suggest well-known, authentic Indian brands.`;
         indianProductId = newProduct.id;
       }
 
+      // Normalize comparison values to match database constraints
+      const normalizeQuality = (val: string): string => {
+        const v = (val || '').toLowerCase();
+        if (v.includes('better') || v.includes('superior')) return 'better';
+        if (v.includes('good') || v.includes('decent')) return 'good';
+        return 'similar';
+      };
+
+      const normalizePrice = (val: string): string => {
+        const v = (val || '').toLowerCase();
+        if (v.includes('cheap') || v.includes('lower') || v.includes('affordable') || v.includes('less')) return 'cheaper';
+        if (v.includes('expensive') || v.includes('higher') || v.includes('more')) return 'more_expensive';
+        return 'similar';
+      };
+
       // Save alternative relationship with enhanced data
       const { data: altData, error: altError } = await supabase
         .from('alternatives')
@@ -264,8 +287,8 @@ Only suggest well-known, authentic Indian brands.`;
           indian_product_id: indianProductId,
           match_score: alt.match_score || 85,
           reason: alt.reason || 'Similar product category and quality',
-          quality_comparison: alt.quality_comparison || 'Comparable quality',
-          price_comparison: alt.price_comparison || 'Similar price range',
+          quality_comparison: normalizeQuality(alt.quality_comparison),
+          price_comparison: normalizePrice(alt.price_comparison),
           reason_tags: alt.reason_tags || ['same_category'],
           confidence: alt.confidence || 'medium',
           source_urls: alt.source_urls || []

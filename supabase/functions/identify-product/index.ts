@@ -14,6 +14,54 @@ function isIndianByTags(countriesTags: string[] = [], countryRaw: string = ''): 
   return false;
 }
 
+// Estimate price based on product details
+function estimatePrice(product: any, brand: string, category: string, isIndian: boolean): number {
+  // Base price estimation by category
+  const categoryLower = (category || '').toLowerCase();
+  let basePrice = 50;
+  
+  if (categoryLower.includes('beverage') || categoryLower.includes('drink') || categoryLower.includes('soda')) {
+    basePrice = isIndian ? 30 : 120;
+  } else if (categoryLower.includes('snack') || categoryLower.includes('chip') || categoryLower.includes('crisp')) {
+    basePrice = isIndian ? 20 : 150;
+  } else if (categoryLower.includes('chocolate') || categoryLower.includes('candy') || categoryLower.includes('sweet')) {
+    basePrice = isIndian ? 40 : 200;
+  } else if (categoryLower.includes('dairy') || categoryLower.includes('milk') || categoryLower.includes('yogurt')) {
+    basePrice = isIndian ? 50 : 180;
+  } else if (categoryLower.includes('cereal') || categoryLower.includes('breakfast')) {
+    basePrice = isIndian ? 80 : 300;
+  } else if (categoryLower.includes('sauce') || categoryLower.includes('condiment')) {
+    basePrice = isIndian ? 60 : 250;
+  }
+  
+  // Adjust by brand recognition
+  const brandLower = (brand || '').toLowerCase();
+  const premiumBrands = ['coca-cola', 'pepsi', 'nestle', 'unilever', 'kellogs', 'lays', 'doritos'];
+  if (premiumBrands.some(b => brandLower.includes(b))) {
+    basePrice *= 1.5;
+  }
+  
+  // Check if product has quantity/weight info
+  const productName = (product?.product_name || '').toLowerCase();
+  if (productName.match(/\d+\s*(ml|l|g|kg)/)) {
+    const quantityMatch = productName.match(/(\d+)\s*(ml|l|g|kg)/);
+    if (quantityMatch) {
+      const quantity = parseInt(quantityMatch[1]);
+      const unit = quantityMatch[2];
+      
+      if (unit === 'l' || unit === 'kg') {
+        basePrice *= quantity;
+      } else if (unit === 'ml' && quantity >= 500) {
+        basePrice *= 1.5;
+      } else if (unit === 'g' && quantity >= 500) {
+        basePrice *= 1.5;
+      }
+    }
+  }
+  
+  return Math.round(basePrice);
+}
+
 // Call Lovable AI as validator for OFF data
 async function validateProductWithAI(offData: any): Promise<any> {
   const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
@@ -228,6 +276,13 @@ serve(async (req) => {
           const aiIsIndian = validationResult?.is_indian === 'true' || validationResult?.is_indian === true;
           const finalIsIndian = aiIsIndian || offIsIndian;
 
+          const estimatedPrice = estimatePrice(
+            offProduct,
+            offProduct.brands || 'Unknown Brand',
+            offProduct.categories?.split(',')[0]?.trim() || 'Food',
+            finalIsIndian
+          );
+
           product = {
             barcode: offData.code,
             name: offProduct.product_name || 'Unknown Product',
@@ -237,7 +292,7 @@ serve(async (req) => {
             is_indian: finalIsIndian,
             description: description,
             image_url: offProduct.image_url || offProduct.image_front_url || `https://example.com/images/${sanitizedBarcode}.jpg`,
-            price: 0,
+            price: estimatedPrice,
             availability: 'unknown',
             where_to_buy: JSON.stringify(['Local Stores', 'Online Retailers']),
             rating: 0,
@@ -265,16 +320,24 @@ serve(async (req) => {
       if (retrievalResult && retrievalResult.confidence !== 'low' && (retrievalResult.source_urls || []).length > 0) {
         console.log('AI retrieval successful:', retrievalResult);
         
+        const isIndian = retrievalResult.is_indian === 'true' || retrievalResult.is_indian === true;
+        const estimatedPrice = estimatePrice(
+          { product_name: retrievalResult.name },
+          retrievalResult.brand || 'Unknown Brand',
+          retrievalResult.categories || 'Unknown',
+          isIndian
+        );
+
         product = {
           barcode: sanitizedBarcode,
           name: retrievalResult.name || 'Unknown Product',
           brand: retrievalResult.brand || 'Unknown Brand',
           category: retrievalResult.categories || 'Unknown',
           country_of_origin: retrievalResult.countries || 'Unknown',
-          is_indian: retrievalResult.is_indian === 'true' || retrievalResult.is_indian === true,
+          is_indian: isIndian,
           description: retrievalResult.description || 'No description available',
           image_url: retrievalResult.image_url || `https://example.com/images/${sanitizedBarcode}.jpg`,
-          price: 0,
+          price: estimatedPrice,
           availability: 'unknown',
           where_to_buy: JSON.stringify(['Online Stores']),
           rating: 0,
