@@ -6,6 +6,102 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Estimate price using AI
+async function estimatePriceWithAI(productName: string, brand: string, category: string, countryOfOrigin: string, isIndian: boolean): Promise<number> {
+  const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+  if (!LOVABLE_API_KEY) {
+    console.log('LOVABLE_API_KEY not available for price estimation');
+    return 50;
+  }
+
+  const prompt = `You are a product data validator for the Indian retail market. Estimate a realistic retail price in Indian Rupees (INR).
+
+Product Details:
+- Name: ${productName}
+- Brand: ${brand}
+- Category: ${category}
+- Country of Origin: ${countryOfOrigin}
+- Is Indian Product: ${isIndian}
+
+Instructions:
+- Estimate average Indian retail market price
+- For foreign products, consider import markup (typically 1.5-2x base price)
+- Consider brand popularity and positioning (premium vs mass market)
+- Account for size/volume in pricing
+- Use realistic Indian retail context (not international MRP)
+- For beverages: typical range 20-150 INR
+- For snacks: typical range 10-200 INR
+- For packaged foods: typical range 30-500 INR
+
+Return ONLY a number representing the price in INR. No currency symbols, no text, just the number.
+Example: 120`;
+
+  try {
+    const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-2.5-flash',
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+
+    if (!aiResponse.ok) {
+      console.log('AI price estimation failed');
+      return 50;
+    }
+
+    const aiData = await aiResponse.json();
+    const priceText = aiData.choices[0]?.message?.content || '50';
+    const estimatedPrice = parseInt(priceText.match(/\d+/)?.[0] || '50');
+    
+    return estimatedPrice < 5 ? 50 : estimatedPrice;
+  } catch (error) {
+    console.error('Price estimation error:', error);
+    return 50;
+  }
+}
+
+// Backfill prices for products with missing or zero prices
+async function backfillPrices(products: any[], supabase: any): Promise<any[]> {
+  const updatedProducts = [];
+  
+  for (const product of products) {
+    if (!product.price || product.price <= 0) {
+      console.log(`Estimating price for: ${product.name}`);
+      
+      const estimatedPrice = await estimatePriceWithAI(
+        product.name || 'Unknown Product',
+        product.brand || 'Unknown Brand',
+        product.category || 'Food',
+        product.country_of_origin || 'Unknown',
+        product.is_indian || false
+      );
+      
+      // Update in database
+      const { data: updated } = await supabase
+        .from('products')
+        .update({ price: estimatedPrice })
+        .eq('id', product.id)
+        .select()
+        .single();
+      
+      if (updated) {
+        updatedProducts.push(updated);
+      } else {
+        updatedProducts.push({ ...product, price: estimatedPrice });
+      }
+    } else {
+      updatedProducts.push(product);
+    }
+  }
+  
+  return updatedProducts;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -59,8 +155,12 @@ serve(async (req) => {
 
     if (dbResults && dbResults.length > 0) {
       console.log(`Found ${dbResults.length} products in database`);
+      
+      // Backfill prices for products with missing prices
+      const updatedProducts = await backfillPrices(dbResults, supabase);
+      
       return new Response(
-        JSON.stringify({ products: dbResults }),
+        JSON.stringify({ products: updatedProducts }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -119,10 +219,12 @@ serve(async (req) => {
       console.log('OpenFoodFacts search failed:', offError);
     }
 
-    // If we found products from OFF, return them
+    // If we found products from OFF, backfill prices and return them
     if (products.length > 0) {
+      const updatedProducts = await backfillPrices(products, supabase);
+      
       return new Response(
-        JSON.stringify({ products }),
+        JSON.stringify({ products: updatedProducts }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -221,8 +323,11 @@ serve(async (req) => {
       }
     }
 
+    // Backfill prices for AI-generated products
+    const updatedProducts = await backfillPrices(products, supabase);
+
     return new Response(
-      JSON.stringify({ products }),
+      JSON.stringify({ products: updatedProducts }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
