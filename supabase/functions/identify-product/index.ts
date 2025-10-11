@@ -15,21 +15,35 @@ function isIndianByTags(countriesTags: string[] = [], countryRaw: string = ''): 
 }
 
 // Estimate price using AI
-async function estimatePriceWithAI(productName: string, brand: string, category: string, quantity: string): Promise<number> {
+async function estimatePriceWithAI(productName: string, brand: string, category: string, quantity: string, countryOfOrigin: string, isIndian: boolean): Promise<number> {
   const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
   if (!LOVABLE_API_KEY) {
     console.log('LOVABLE_API_KEY not available for price estimation');
     return 50;
   }
 
-  const prompt = `Estimate a realistic market price in Indian Rupees (INR) for this product:
-Product: ${productName}
-Brand: ${brand}
-Category: ${category}
-Weight/Quantity: ${quantity || 'unknown'}
+  const prompt = `You are a product data validator for the Indian retail market. Estimate a realistic retail price in Indian Rupees (INR).
+
+Product Details:
+- Name: ${productName}
+- Brand: ${brand}
+- Category: ${category}
+- Weight/Quantity: ${quantity || 'unknown'}
+- Country of Origin: ${countryOfOrigin}
+- Is Indian Product: ${isIndian}
+
+Instructions:
+- Estimate average Indian retail market price
+- For foreign products, consider import markup (typically 1.5-2x base price)
+- Consider brand popularity and positioning (premium vs mass market)
+- Account for size/volume in pricing
+- Use realistic Indian retail context (not international MRP)
+- For beverages: typical range 20-150 INR
+- For snacks: typical range 10-200 INR
+- For packaged foods: typical range 30-500 INR
 
 Return ONLY a number representing the price in INR. No currency symbols, no text, just the number.
-Example: 45`;
+Example: 120`;
 
   try {
     const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
@@ -343,7 +357,9 @@ serve(async (req) => {
               offProduct.product_name || 'Unknown Product',
               offProduct.brands || 'Unknown Brand',
               offProduct.categories?.split(',')[0]?.trim() || 'Food',
-              offProduct.quantity || ''
+              offProduct.quantity || '',
+              offProduct.countries_tags?.[0]?.replace('en:', '').replace(/-/g, ' ') || 'Unknown',
+              finalIsIndian
             );
           }
 
@@ -399,7 +415,9 @@ serve(async (req) => {
             retrievalResult.name || 'Unknown Product',
             retrievalResult.brand || 'Unknown Brand',
             retrievalResult.categories || 'Unknown',
-            ''
+            '',
+            retrievalResult.countries || 'Unknown',
+            isIndian
           );
         }
 
